@@ -236,7 +236,8 @@ async function getTeamPoints(teamId, championshipId) {
         WHERE championship_id = $2
     `, [teamId, championshipId]);
 
-    return parseInt(result.rows[0].points, 10) || 0;
+    const rawPoints = result?.rows?.[0]?.points;
+    return parseInt(rawPoints, 10) || 0;
 }
 
 // Rota principal de simulação
@@ -285,7 +286,7 @@ app.post('/championships/:id/simulate', async (req, res) => {
                 winnerId = t2.id;
                 loserId = t1.id;
             } else {
-                // Empate → desempate por pontos acumulados
+               // Empate → desempate por pontos acumulados
                 const points1 = await getTeamPoints(t1.id, id);
                 const points2 = await getTeamPoints(t2.id, id);
 
@@ -296,11 +297,28 @@ app.post('/championships/:id/simulate', async (req, res) => {
                     winnerId = t2.id;
                     loserId = t1.id;
                 } else {
-                    // Empate nos pontos → time com id menor (inscrito primeiro)
-                    winnerId = t1.createad_at < t2.createad_at ? t1.createad_at : t2.createad_at;
-                    loserId = t1.createad_at < t2.createad_at ? t2.createad_at : t1.createad_at;
+                    // Empate nos pontos → time inscrito primeiro (created_at menor)
+                    const date1 = new Date(t1.created_at);
+                    const date2 = new Date(t2.created_at);
+
+                    if (date1 < date2 || (date1.getTime() === date2.getTime() && t1.id < t2.id)) {
+                        winnerId = t1.id;
+                        loserId = t2.id;
+                    } else {
+                        winnerId = t2.id;
+                        loserId = t1.id;
+                    }
                 }
             }
+
+
+            const winnerTeam = teams.find(t => t.id === winnerId);
+            if (!winnerTeam) {
+                console.error(`ERRO CRÍTICO: Vencedor não encontrado. winnerId: ${winnerId}, times disponíveis: ${teams.map(t => t.id).join(', ')}`);
+                throw new Error(`Vencedor não encontrado para winnerId ${winnerId}`);
+            }
+
+        
 
             // Salva o jogo
             const matchRes = await pool.query(`
@@ -313,21 +331,35 @@ app.post('/championships/:id/simulate', async (req, res) => {
 
             return { winner: teams.find(t => t.id === winnerId) };
         }
-
+        
+        
         // Fase 1: Quartas de final (4 jogos)
         const quarterWinners = [];
+
+       
         for (let i = 0; i < 8; i += 2) {
             const res = await playMatch(teams[i], teams[i + 1], 'quartas');
             quarterWinners.push(res.winner);
         }
 
+        if (quarterWinners.length !== 4) {
+        return res.status(500).json({ error: 'Falha ao gerar vencedores das quartas' });
+        }
+
         // Fase 2: Semifinais (2 jogos)
         const semiWinners = [];
         const semiLosers = [];
+
+        
+
         for (let i = 0; i < 4; i += 2) {
             const res = await playMatch(quarterWinners[i], quarterWinners[i + 1], 'semifinal');
             semiWinners.push(res.winner);
             semiLosers.push(quarterWinners[i === 0 ? 1 : 0]); // perdedor
+        }
+        
+        if (semiWinners.length !== 2) {
+            return res.status(500).json({ error: 'Falha ao gerar vencedores da semi' });
         }
 
         // Disputa de 3º lugar
@@ -367,7 +399,9 @@ app.post('/championships/:id/simulate', async (req, res) => {
 });
 
 
-
+module.exports = {
+  getTeamPoints
+};
 
 
 app.listen(3000);
