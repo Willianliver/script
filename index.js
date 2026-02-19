@@ -136,8 +136,53 @@ app.post('/championship', async (req, res) =>{
     }
 });
 
+// visualizando um campeonato
+app.get('/championships', async (req, res) =>{
+    try{
+        const result_name = await pool.query(
+            'SELECT * FROM championships',
+        );
+        res.json(result_name.rows);  // res.json(result_name.rows[0]); para receber somente 1 valor
+    } catch (err) {
+        res.status(500).json(err.message);
+    }
+});
 
+//visualizando campeonatos
+app.get('/resultados', async (req, res) =>{
+    try {
+        let query = 'SELECT * FROM matches WHERE 1=1';
+        const params = [];
+        let paramIndex = 1;
 
+        if (req.query.phase) {
+            const phases = Array.isArray(req.query.phase)
+            ? req.query.phase
+            : [req.query.phase];
+
+            const placeholders = phases.map(() => `$${paramIndex++}`).join(', ');
+            query += ` AND phase IN (${placeholders})`;
+
+            params.push(...phases)  ;
+        }
+        
+        const result = await pool.query(query, params);
+
+        res.json({
+            data: result.rows,
+            count: result.rowCount,
+            filters_applied: req.query.phase ? { phase: req.query.phase } : {}
+        });
+        
+        console.log('Query final:', query);
+        console.log('Parâmetros:', params);
+  
+    } catch (err) {
+        res.status(500).json(err.message);
+        console.error(err);
+    }
+});
+    
 
 /////////////////////////////////  lógica do jogo  \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 const { spawn } = require('child_process');
